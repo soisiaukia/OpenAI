@@ -68,10 +68,11 @@
     "ai": "latest",
     "@react-three/drei": "latest",
     "@react-spring/three": "latest",
-    "@neondatabase/serverless": "latest",
-    "@upstash/redis": "latest",
     "@ai-sdk/groq": "latest",
-    "@ai-sdk/xai": "latest"
+    "@ai-sdk/xai": "latest",
+    "@upstash/redis": "latest",
+    "@neondatabase/serverless": "latest",
+    "@supabase/supabase-js": "latest"
   },
   "devDependencies": {
     "@types/node": "^22",

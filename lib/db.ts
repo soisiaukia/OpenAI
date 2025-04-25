@@ -1,19 +1,32 @@
 import { neon } from "@neondatabase/serverless"
 import { Redis } from "@upstash/redis"
+import { createClient } from "@supabase/supabase-js"
 
-// Initialize Neon database client
-const sql = neon(process.env.DATABASE_URL!)
+// Initialize Supabase client
+const supabase = createClient(
+  process.env.SUPABASE_URL || process.env.SUPABASE_NEXT_PUBLIC_SUPABASE_URL || "",
+  process.env.SUPABASE_ANON_KEY || proSUPABASE_NEXT_PUBLIC_SUPABASE_ANON_KEY_ANON_KEY || "",
+)
+
+// Initialize Neon database client (as fallback)
+const sql = neon(process.env.DATABASE_URL || "")
 
 // Initialize Redis client
 const redis = new Redis({
-  url: process.env.REDIS_URL!,
-  token: process.env.KV_REST_API_TOKEN!,
+  url: process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL || "",
+  token: process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN || "",
 })
 
 // User functions
 export async function getUserById(id: number) {
-  const user = await sql`SELECT * FROM users WHERE id = ${id}`
-  return user[0] || null
+  const { data, error } = await supabase.from("users").select("*").eq("id", id).single()
+
+  if (error) {
+    console.error("Error fetching user:", error)
+    return null
+  }
+
+  return data
 }
 
 export async function getUserPreferences(userId: number) {
@@ -26,12 +39,17 @@ export async function getUserPreferences(userId: number) {
   }
 
   // If not in cache, get from database
-  const preferences = await sql`SELECT * FROM user_preferences WHERE user_id = ${userId}`
+  const { data, error } = await supabase.from("user_preferences").select("*").eq("user_id", userId).single()
 
-  if (preferences[0]) {
+  if (error) {
+    console.error("Error fetching user preferences:", error)
+    return null
+  }
+
+  if (data) {
     // Cache the preferences for 1 hour
-    await redis.set(cacheKey, preferences[0], { ex: 3600 })
-    return preferences[0]
+    await redis.set(cacheKey, data, { ex: 3600 })
+    return data
   }
 
   return null
@@ -40,52 +58,81 @@ export async function getUserPreferences(userId: number) {
 export async function updateUserPreferences(userId: number, preferences: any) {
   const { voice_enabled, theme, response_length } = preferences
 
-  const result = await sql`
-    UPDATE user_preferences
-    SET voice_enabled = ${voice_enabled}, theme = ${theme}, response_length = ${response_length}
-    WHERE user_id = ${userId}
-    RETURNING *
-  `
+  const { data, error } = await supabase
+    .from("user_preferences")
+    .update({ voice_enabled, theme, response_length })
+    .eq("user_id", userId)
+    .select()
+    .single()
+
+  if (error) {
+    console.error("Error updating user preferences:", error)
+    return null
+  }
 
   // Update cache
   const cacheKey = `user:${userId}:preferences`
-  await redis.set(cacheKey, result[0], { ex: 3600 })
+  await redis.set(cacheKey, data, { ex: 3600 })
 
-  return result[0]
+  return data
 }
 
 // Conversation functions
 export async function getConversationById(id: number) {
-  const conversation = await sql`SELECT * FROM conversations WHERE id = ${id}`
-  return conversation[0] || null
+  const { data, error } = await supabase.from("conversations").select("*").eq("id", id).single()
+
+  if (error) {
+    console.error("Error fetching conversation:", error)
+    return null
+  }
+
+  return data
 }
 
 export async function createConversation(userId: number, title: string) {
-  const result = await sql`
-    INSERT INTO conversations (user_id, title)
-    VALUES (${userId}, ${title})
-    RETURNING *
-  `
-  return result[0]
+  const { data, error } = await supabase
+    .from("conversations")
+    .insert([{ user_id: userId, title }])
+    .select()
+    .single()
+
+  if (error) {
+    console.error("Error creating conversation:", error)
+    return null
+  }
+
+  return data
 }
 
 // Message functions
 export async function getMessagesByConversationId(conversationId: number) {
-  const messages = await sql`
-    SELECT * FROM messages 
-    WHERE conversation_id = ${conversationId}
-    ORDER BY created_at ASC
-  `
-  return messages
+  const { data, error } = await supabase
+    .from("messages")
+    .select("*")
+    .eq("conversation_id", conversationId)
+    .order("created_at", { ascending: true })
+
+  if (error) {
+    console.error("Error fetching messages:", error)
+    return []
+  }
+
+  return data
 }
 
 export async function createMessage(conversationId: number, role: string, content: string) {
-  const result = await sql`
-    INSERT INTO messages (conversation_id, role, content)
-    VALUES (${conversationId}, ${role}, ${content})
-    RETURNING *
-  `
-  return result[0]
+  const { data, error } = await supabase
+    .from("messages")
+    .insert([{ conversation_id: conversationId, role, content }])
+    .select()
+    .single()
+
+  if (error) {
+    console.error("Error creating message:", error)
+    return null
+  }
+
+  return data
 }
 
 // Cache conversation history for quick access
